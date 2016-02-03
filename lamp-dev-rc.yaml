@@ -1,0 +1,284 @@
+heat_template_version: 2015-10-15
+
+description: |
+  #### Development
+  A single Linux server running the latest version of
+  [Apache](https://www.apache.org//),
+  [PHP](http://www.php.net/).
+  and [MySQL 5.6](http://www.mysql.com/about/).
+
+  **This deployment is meant for development and testing scenarios only and is not
+  intended for production use**.
+parameter_groups:
+- label: LAMP Settings
+  parameters:
+  - lamp_url
+  - db_user
+  - db_name
+  - php_myadmin
+- label: RackConnect Settings
+  parameters:
+  - rc_network_name
+
+parameters:
+  #LAMP Customization
+  lamp_url:
+    type: string
+    default: example.com
+    label: Site Domain
+    description: Domain used to configure Apache
+    constraints:
+    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}.[a-zA-Z]{2,15}$"
+      description: Must be a valid domain name
+  db_user:
+    type: string
+    default: example
+    label: Database User
+    description: Username to configure for SQL
+    constraints:
+    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}$"
+      description: Must only contain alphanumeric characters, '-', and '.'
+  db_name:
+    type: string
+    default: example
+    label: Database Name
+    description: Database to configure in SQL
+    constraints:
+    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}$"
+      description: Must only contain alphanumeric characters, '-', and '.'
+  php_myadmin:
+    type: boolean
+    default: false
+    label: PHPMyAdmin
+    description: Enable or disable PHPMyAdmin
+  backup_email:
+    type: string
+    default: admin@example.com
+    label: E-mail
+    description: E-mail address to be notified for failing backups
+  rc_network_name:
+    type: string
+    label: RackConnect Network
+    description: Name or UUID of RackConnected network to attach this server to
+    constraints:
+    - custom_constraint: rackconnect.network
+  #Advanced Options
+  lsync_directory:
+    type: string
+    default: "/var/www"
+    label: Shared Directory
+    description: This directory will be synchronized between all servers within this stack.  Leave blank to manually configure Lsyncd
+  server_flavor:
+    type: string
+    default: 4 GB General Purpose v1
+    label: Server Flavor
+    description: Flavor of Cloud Server to be used for all servers in this stack
+    constraints:
+    - allowed_values:
+      - 1 GB General Purpose v1
+      - 2 GB General Purpose v1
+      - 4 GB General Purpose v1
+      - 8 GB General Purpose v1
+#  server_image:
+#    type: string
+#    default: f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+#    label: Server Image
+#    description: Image to be used for all servers in this stack
+#    constraints:
+#    - allowed_values:
+#      - f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+
+resources:
+  #Passwords
+  database_pass:
+    type: OS::Heat::RandomString
+  holland_pass:
+    type: OS::Heat::RandomString
+  root_pass:
+    type: OS::Heat::RandomString
+  #SSH Key
+  ssh_key:
+    type: OS::Nova::KeyPair
+    properties:
+      name: { get_param: "OS::stack_id" }
+      save_private_key: true
+  #Software Configurations
+  upload_role_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      outputs:
+      - name: results
+      config: |
+        #!/bin/bash
+        set -e
+        git clone -b 'stable' --single-branch --progress https://github.com/rackspace-orchestration-templates/ansible-roles.git /etc/ansible/roles > $heat_outputs_path.results 2>&1
+
+  lamp_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ansible
+      config: |
+        ---
+        - name: Install and configure LAMP
+          hosts: localhost
+          connection: local
+          roles:
+          - common
+          - apache
+          - php
+          - mysql
+          - holland
+          - phpmyadmin
+          - firewall
+  deploy_roles:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      signal_transport: TEMP_URL_SIGNAL
+      config:
+        get_resource: upload_role_config
+      server:
+        get_resource: lamp_server
+  deploy_lamp:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: deploy_roles
+    properties:
+      signal_transport: TEMP_URL_SIGNAL
+      input_values:
+        apache_default_domain: { get_param: lamp_url }
+        tz: "America/Chicago"
+        mysql_root_password: { get_attr: [root_pass, value] }
+        mysql_default_user: { get_param: db_user }
+        mysql_default_user_password: { get_attr: [database_pass, value] }
+        mysql_default_database: { get_param: db_name }
+        holland_mysql_user: "holland"
+        holland_mysql_password: {  get_attr: [holland_pass, value] }
+        holland_mysql_host: "localhost"
+        holland_create_user: "yes"
+        phpmyadmin_install: { get_param: php_myadmin }
+        phpmyadmin_host: "localhost"
+        phpmyadmin_user: root
+        phpmyadmin_pass: { get_attr: [root_pass, value] }
+        firewall_global_rules: [ "0.0.0.0,0,22,tcp", "0.0.0.0,0,80,tcp", "0.0.0.0,0,443,tcp"]
+        firewall_node_rules: []
+      config:
+        get_resource: lamp_config
+      server:
+        get_resource: lamp_server
+  #Master Server
+  lamp_server:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: "OS::stack_name" }
+#      image: { get_param: server_image }
+      image: f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+      flavor: { get_param: server_flavor }
+      key_name: { get_resource: ssh_key }
+      software_config_transport: POLL_TEMP_URL
+      config_drive: true
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+      - network: { get_param: rc_network_name }
+      - uuid: 11111111-1111-1111-1111-111111111111
+      metadata:
+        rax-heat: { get_param: "OS::stack_id" }
+        build_config: "backup_agent_only,monitoring_defaults"
+  #Monitoring Checks
+  lamp_server_http_check:
+    type: Rackspace::CloudMonitoring::Check
+    depends_on:
+    - deploy_lamp
+    - lamp_server_public_ip
+    properties:
+      entity: { get_resource: lamp_server }
+      type: remote.http
+      label:
+        str_replace:
+          template: stack Master HTTP Check
+          params:
+            stack: { get_param: "OS::stack_name" }
+      details:
+        url:
+          str_replace:
+            template: "http://ipaddr"
+            params:
+              ipaddr: { get_attr: [lamp_server, accessIPv4] }
+      metadata:
+        rax-heat: { get_param: "OS::stack_id" }
+        stack-name: { get_param: "OS::stack_name" }
+      period: 120
+      timeout: 10
+      monitoring_zones_poll:
+      - Northern Virginia (IAD)
+      - Chicago (ORD)
+      - Dallas Fort Worth (DFW)
+      - London (LON)
+      target_hostname: { get_attr: [lamp_server, accessIPv4] }
+      target_receiver: IPv4
+  lamp_server_public_ip:
+    type: Rackspace::RackConnect::PublicIP
+    depends_on:
+    - lamp_server
+    properties:
+      server_id: { get_resource: lamp_server }
+  #Cloud Backup
+  lamp_backup:
+    type: Rackspace::Cloud::BackupConfig
+    depends_on: lamp_server
+    properties:
+      host_ip_address: { get_attr: [lamp_server, accessIPv4] }
+      BackupConfigurationName:
+        str_replace:
+          template: stack Weekly Backup
+          params:
+            stack: { get_param: "OS::stack_name" }
+      Inclusions:
+      - FilePath: "/var/spool/holland"
+        FileItemType: "Folder"
+      - FilePath: "/var/www"
+        FileItemType: "Folder"
+      NotifyFailure: true
+      NotifyRecipients: { get_param: backup_email }
+      TimeZoneId: Central Standard Time
+      StartTimeAmPm: AM
+      StartTimeHour: 1
+      StartTimeMinute: 0
+      HourInterval: null
+      DayOfWeekId: 0
+      Frequency: "Weekly"
+      VersionRetention: 30
+
+outputs:
+  lamp_public_ip:
+    description: Server Public IP
+    value:
+      get_attr: [lamp_server, accessIPv4]
+  lamp_public_url:
+    description: Public URL
+    value:
+      str_replace:
+        template: "http://domain/"
+        params:
+          domain: { get_param: lamp_url }
+  lampmyadmin_url:
+    description: PHPMyAdmin URL (if enabled)
+    value:
+      str_replace:
+        template: "https://IP/phpmyadmin/"
+        params:
+          IP:
+            get_attr: [lamp_server, accessIPv4]
+  mysql_user:
+    description: Database User
+    value: { get_param: db_user }
+  mysql_database:
+    description: Database Name
+    value: {get_param: db_name }
+  mysql_password:
+    description: Database Password
+    value:
+      get_attr: [database_pass, value]
+  ssh_private_key:
+    description: SSH Private Key
+    value:
+      get_attr: [ssh_key, private_key]
