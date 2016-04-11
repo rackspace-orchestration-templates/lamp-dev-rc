@@ -1,10 +1,11 @@
 heat_template_version: 2015-10-15
 
 description: |
-  #### Development
+  #### Development - RCv3
+
   A single Linux server running the latest version of
   [Apache](https://www.apache.org//),
-  [PHP](http://www.php.net/).
+  [PHP](http://www.php.net/),
   and [MySQL 5.6](http://www.mysql.com/about/).
 
   **This deployment is meant for development and testing scenarios only and is not
@@ -30,6 +31,7 @@ parameters:
     constraints:
     - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}.[a-zA-Z]{2,15}$"
       description: Must be a valid domain name
+    immutable: true
   db_user:
     type: string
     default: example
@@ -38,6 +40,7 @@ parameters:
     constraints:
     - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}$"
       description: Must only contain alphanumeric characters, '-', and '.'
+    immutable: true
   db_name:
     type: string
     default: example
@@ -46,22 +49,26 @@ parameters:
     constraints:
     - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}$"
       description: Must only contain alphanumeric characters, '-', and '.'
+    immutable: true
   php_myadmin:
     type: boolean
     default: false
     label: PHPMyAdmin
     description: Enable or disable PHPMyAdmin
+    immutable: true
   backup_email:
     type: string
     default: admin@example.com
     label: E-mail
     description: E-mail address to be notified for failing backups
+    immutable: true
   rc_network_name:
     type: string
     label: RackConnect Network
     description: Name or UUID of RackConnected network to attach this server to
     constraints:
     - custom_constraint: rackconnect.network
+    immutable: true
   #Advanced Options
   lsync_directory:
     type: string
@@ -79,14 +86,27 @@ parameters:
       - 2 GB General Purpose v1
       - 4 GB General Purpose v1
       - 8 GB General Purpose v1
-#  server_image:
-#    type: string
-#    default: f4bbbce2-50b0-4b07-bf09-96c175a45f4b
-#    label: Server Image
-#    description: Image to be used for all servers in this stack
-#    constraints:
-#    - allowed_values:
-#      - f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+  server_image:
+    type: string
+    default: f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+    label: Server Image
+    description: Image to be used for all servers in this stack
+    constraints:
+    - allowed_values:
+      - f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+    immutable: true
+  ansible_branch:
+    type: string
+    default: stable
+    label: Git Branch or Tag for Ansible Roles
+    description: The Ansible Roles will be pulled from Git, using the tag or branch provided
+    immutable: true
+  ansible_repo:
+    type: string
+    default: https://github.com/rackspace-orchestration-templates/ansible-roles.git
+    label: Git Repo for Ansible Roles
+    description: The Ansible Roles will be pulled from Git, using the repo provided
+    immutable: true
 
 resources:
   #Passwords
@@ -109,11 +129,15 @@ resources:
       group: script
       outputs:
       - name: results
-      config: |
-        #!/bin/bash
-        set -e
-        git clone -b 'stable' --single-branch --progress https://github.com/rackspace-orchestration-templates/ansible-roles.git /etc/ansible/roles > $heat_outputs_path.results 2>&1
-
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -e
+            git clone -b 'tag' --single-branch --progress repository /etc/ansible/roles > $heat_outputs_path.results 2>&1
+          params:
+            tag: { get_param: ansible_branch}
+            repository: { get_param: ansible_repo }
   lamp_config:
     type: OS::Heat::SoftwareConfig
     properties:
@@ -170,8 +194,7 @@ resources:
     type: OS::Nova::Server
     properties:
       name: { get_param: "OS::stack_name" }
-#      image: { get_param: server_image }
-      image: f4bbbce2-50b0-4b07-bf09-96c175a45f4b
+      image: { get_param: server_image }
       flavor: { get_param: server_flavor }
       key_name: { get_resource: ssh_key }
       software_config_transport: POLL_TEMP_URL
@@ -226,7 +249,8 @@ resources:
     type: Rackspace::Cloud::BackupConfig
     depends_on: lamp_server
     properties:
-      host_ip_address: { get_attr: [lamp_server, accessIPv4] }
+      #host_ip_address: { get_attr: [lamp_server, accessIPv4] }
+      server: { get_resource: lamp_server }
       BackupConfigurationName:
         str_replace:
           template: stack Weekly Backup
