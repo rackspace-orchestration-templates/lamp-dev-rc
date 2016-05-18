@@ -11,14 +11,10 @@ def check():
 
   if (env.platform_family == "rhel"):
     assert process.is_up('httpd'), 'apache is not running'
-    assert process.is_up('php'), 'php is not running'
     assert service.is_enabled('httpd'), 'apache is not enabled'
-    assert service.is_enabled('php'), 'php is not enabled'
-  elif (env.platform_family == 'debian'): 
-    assert process.is_up('apache2'), 'apache is not running' 
-    assert process.is_up('php5'), 'php is not running'
+  elif (env.platform_family == 'debian'):
+    assert process.is_up('apache2'), 'apache is not running'
     assert service.is_enabled('apach2e'), 'apache is not enabled'
-    assert service.is_enabled('php5'), 'php is not enabled' 
   if ("secondary" not in socket.gethostname()):
     assert service.is_enabled('lsyncd'), 'lsyncd is not enabled'
 
