@@ -31,7 +31,7 @@ parameters:
     label: Site Domain
     description: Domain used to configure Apache
     constraints:
-    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}.[a-zA-Z]{2,15}$"
+    - allowed_pattern: "^[a-zA-Z0-9.\-_]{1,255}.[a-zA-Z]{2,15}$"
       description: Must be a valid domain name
     immutable: true
   db_user:
@@ -40,8 +40,8 @@ parameters:
     label: Database User
     description: Username to configure for SQL
     constraints:
-    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}$"
-      description: Must only contain alphanumeric characters, '-', and '.'
+    - allowed_pattern: "^[a-zA-Z0-9.\-_]{1,255}.[a-zA-Z]{2,15}$"
+      description: Must only contain alphanumeric characters, '-', '_', and '.'
     immutable: true
   db_name:
     type: string
@@ -49,8 +49,8 @@ parameters:
     label: Database Name
     description: Database to configure in SQL
     constraints:
-    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}$"
-      description: Must only contain alphanumeric characters, '-', and '.'
+    - allowed_pattern: "^[a-zA-Z0-9.\-_]{1,255}.[a-zA-Z]{2,15}$"
+      description: Must only contain alphanumeric characters, '-', '_', and '.'
     immutable: true
   php_myadmin:
     type: boolean
