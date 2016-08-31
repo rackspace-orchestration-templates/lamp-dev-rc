@@ -31,7 +31,7 @@ parameters:
     label: Site Domain
     description: Domain used to configure Apache
     constraints:
-    - allowed_pattern: "^[a-zA-Z0-9.-_]{1,255}.[a-zA-Z]{2,15}$"
+    - allowed_pattern: "^[a-zA-Z0-9.-]{1,255}.[a-zA-Z]{2,15}$"
       description: Must be a valid domain name
     immutable: true
   db_user:
